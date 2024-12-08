@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace Subscribe_Store_Job
@@ -18,7 +19,13 @@ namespace Subscribe_Store_Job
 
                         // Register the background service
                         services.AddHostedService<RedisSubscriberService>();
-                    }).Build();
+                    }).ConfigureLogging(logging =>
+                    {
+                        logging.ClearProviders(); // Remove default providers
+                        logging.AddConsole();     // Add console logging
+                        logging.SetMinimumLevel(LogLevel.Information); // Set the minimum log level
+                    })
+                            .Build();
 
             await host.RunAsync();
         }
