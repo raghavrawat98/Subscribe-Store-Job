@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
+using Subscribe_Store_Job.OrderServices.Abstractions;
 using System.Text.Json;
 
 namespace Subscribe_Store_Job
@@ -8,20 +9,23 @@ namespace Subscribe_Store_Job
     public class RedisSubscriberService : BackgroundService
     {
         private readonly IConnectionMultiplexer _redis;
+        private IOrderProcessor _orderProcessor;
         private readonly ILogger<RedisSubscriberService> _logger;
-        private const string ChannelName = "MyRedisChannel";
+        private const string ChannelName = "OrderTopic";
 
-        public RedisSubscriberService(IConnectionMultiplexer redis,
-            ILogger<RedisSubscriberService> logger)
+        public RedisSubscriberService(
+            IOrderProcessor orderProcessor,
+            ILogger<RedisSubscriberService> logger,
+            IConnectionMultiplexer connectionMultiplexer)
         {
-            _redis = redis;
+            _orderProcessor = orderProcessor;
             _logger = logger;
+            _redis = connectionMultiplexer;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var subscriber = _redis.GetSubscriber();
-
             await subscriber.SubscribeAsync(ChannelName, async (channel, message) =>
             {
                 _logger.LogInformation("Message received on channel {Channel}: {Message}", channel, message);
@@ -29,22 +33,15 @@ namespace Subscribe_Store_Job
                 try
                 {
                     // Parse the JSON message
-                    var jsonString = message.ToString();
-                    var payload = JsonSerializer.Deserialize<RedisMessage>(jsonString);
+                    Models.Order order = JsonSerializer.Deserialize<Models.Order>(message.ToString());
 
-                    if (payload != null)
+                    if (order != null)
                     {
-                        var db = _redis.GetDatabase();
-                        string key = payload.Id.ToString();
-                        string value = payload.Value;
-
-                        // Store the message in Redis with key=id and value=message
-                        await db.StringSetAsync(key, value);
-                        _logger.LogInformation($"Message stored in Redis. Key: {key}, Value: {value}");
+                        await _orderProcessor.Process(order);
                     }
                     else
                     {
-                        _logger.LogWarning($"Received an invalid message format: {jsonString}");
+                        _logger.LogWarning($"Received an invalid message format: {message.ToString()}");
                     }
                 }
                 catch (JsonException ex)
